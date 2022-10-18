@@ -1,0 +1,117 @@
+https://fluxcd.io/flux/get-started/
+
+Prereqs:
+
+1. Get a kubernetes cluster
+# Download kind (local cluster) which includes kubectl
+curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.16.0/kind-linux-amd64
+chmod +x ./kind
+sudo mv ./kind /usr/local/bin/kind
+
+# Create a cluster
+kind create cluster
+
+Show what is in cluster right now with "kubectl get all -A"
+
+2. generate GITHUB credentials
+export GITHUB_TOKEN=<your-token>
+export GITHUB_USER=renato-marciano
+
+3. install flux cli tool
+curl -s https://fluxcd.io/install.sh | bash
+
+Main Steps:
+
+1. Check if your cluster is flux ready.
+flux check --pre
+
+2. Bootstrap command
+The bootstrap command above does following:
+
+- Creates a git repository fleet-infra on your GitHub account
+- Adds Flux component manifests to the repository
+- Deploys Flux Components to your Kubernetes Cluster
+- Configures Flux components to track the path /clusters/my-cluster/ in the repository
+
+flux bootstrap github \
+  --owner=$GITHUB_USER \
+  --repository=fleet-infra \
+  --branch=main \
+  --path=./clusters/my-cluster \
+  --personal
+
+3. Show fleet-infra repository (GitOps Repo, Manifest Repo, Environment Repo)
+https://github.com/renato-marciano/fleet-infra
+
+4. Show cluster and installed components 
+kubectl get all -A
+kubectl get all -n flux-system
+
+5. Clone repository
+git clone https://github.com/$GITHUB_USER/fleet-infra
+cd fleet-infra
+git log --oneline
+
+6. Add a "Flux Source"
+
+flux create source git podinfo \
+  --url=https://github.com/stefanprodan/podinfo \
+  --branch=master \
+  --interval=30s \
+  --export > ./clusters/my-cluster/podinfo-source.yaml
+
+git add -A && git commit -m "Add podinfo GitRepository"
+git push
+
+7. Show pod info repository in cluster (but not deployed)
+flux get all
+
+8. Deploy Pod Info
+
+flux create kustomization podinfo \
+  --target-namespace=default \
+  --source=podinfo \
+  --path="./kustomize" \
+  --prune=true \
+  --interval=5m \
+  --export > ./clusters/my-cluster/podinfo-kustomization.yaml
+
+git add -A && git commit -m "Add podinfo Kustomization"
+git push
+
+9. Show new kustomization
+flux get all
+
+10. Show deployed pod
+kubectl get all -A
+kubectl get all (default namespace)
+
+11. Update podinfo-kustomization.yaml under spec:
+
+patches:
+  - patch: |-
+      apiVersion: autoscaling/v2beta2
+      kind: HorizontalPodAutoscaler
+      metadata:
+          name: podinfo
+      spec:
+          minReplicas: 3             
+    target:
+      name: podinfo
+      kind: HorizontalPodAutoscaler
+
+Show https://github.com/stefanprodan/podinfo/blob/master/kustomize/hpa.yaml
+
+git add -A && git commit -m "Increase podinfo minimum replicas"
+git push
+
+12. Show current commit 
+git log --oneline
+flux reconcile kustomization flux-system -n flux-system
+flux get all
+
+13. Show changes in the cluster (3 pods now)
+kubectl get all 
+
+14. Show deployed service by forwarding port from port above command:
+kubectl port-forward service/podinfo :9898
